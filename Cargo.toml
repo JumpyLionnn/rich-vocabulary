@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "rich-vocabulary"
+]
+
+default-members = ["rich-vocabulary"]
