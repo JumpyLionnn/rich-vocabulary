@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "rich-vocabulary"
+    "rich-vocabulary",
+    "crates/dictionary"
 ]
 
 default-members = ["rich-vocabulary"]
