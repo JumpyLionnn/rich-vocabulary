@@ -8,10 +8,7 @@ async fn main() {
 
     let client = Dictionary::new();
 
-    let mut word = String::new();
-    print!("Enter a word: ");
-    io::stdout().flush().expect("Couldn't flush stdout.");
-    io::stdin().read_line(&mut word).expect("Couldn't read from stdout");
+    let word = input("Enter a word: ").unwrap();
 
     match client.get_definition(&word).await {
         Ok(word) => {
@@ -39,7 +36,23 @@ async fn main() {
             }
         },
         Err(error) => {
-            println!("Encountered an error while searching for the word definition: {error:?}");
+            match error {
+                dictionary::DictionaryError::NotFound(_) => {
+                    println!("Couldn't find the word you were looking for.")
+                },
+                other => {
+                    println!("Encountered an error while searching for the word definition: {other:?}");
+                }
+            }
         }
     }
+}
+
+
+fn input(prompt: &str) -> io::Result<String> {
+    let mut line = String::new();
+    print!("{prompt}");
+    io::stdout().flush()?;
+    io::stdin().read_line(&mut line)?;
+    Ok(line)
 }

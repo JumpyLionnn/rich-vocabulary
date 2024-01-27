@@ -3,6 +3,20 @@ use serde::Deserialize;
 const URL: &'static str = "https://api.dictionaryapi.dev/api/v2/entries/en/";
 
 #[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ApiResponse {
+    Found(Vec<ApiWord>),
+    Error(ApiError),
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiError {
+    pub title: String,
+    pub message: String,
+    pub resolution: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ApiWord {
     pub word: String,
     pub phonetic: Option<String>,
@@ -168,6 +182,12 @@ pub enum DictionaryError {
     Fetch(reqwest::Error),
     Deserialize(reqwest::Error),
     Conversion(UnknownPartOfSpeech),
+    NotFound(NotFoundError),
+}
+
+#[derive(Debug)]
+pub struct NotFoundError {
+    message: String,
 }
 
 pub struct Dictionary {
@@ -189,15 +209,18 @@ impl Dictionary {
             .send()
             .await
             .map_err(DictionaryError::Fetch)?;
-        res.json::<Vec<ApiWord>>()
+        res.json::<ApiResponse>()
             .await
             .map_err(DictionaryError::Deserialize)
-            .and_then(|mut words| {
-                words
+            .and_then(|res| match res {
+                ApiResponse::Found(mut words) => words
                     .pop()
                     .unwrap()
                     .try_into()
-                    .map_err(DictionaryError::Conversion)
+                    .map_err(DictionaryError::Conversion),
+                ApiResponse::Error(error) => Err(DictionaryError::NotFound(NotFoundError {
+                    message: error.message,
+                })),
             })
     }
 }
