@@ -1,10 +1,10 @@
 use chrono::NaiveDateTime;
 use dictionary::{Dictionary, Word, WordDefinition, WordMeaning};
-use futures::stream::StreamExt;
+use futures::{future::Lazy, stream::StreamExt};
 use sqlx::{
     migrate::MigrateDatabase, query, query_as, Either, FromRow, Pool, Row, Sqlite, SqlitePool,
 };
-use std::io::{self, Write};
+use std::{any::Any, collections::HashMap, io::{self, Write}};
 
 use rand::seq::SliceRandom;
 
@@ -93,7 +93,6 @@ async fn main() {
                                 .choose(&mut rand::thread_rng())
                                 .or_else(|| meaning.antonyms.choose(&mut rand::thread_rng()));
                             if let Some(answer) = answer {
-
                                 let question = Question {
                                     word_uid: entry.uid,
                                     question: format!(
@@ -111,10 +110,9 @@ async fn main() {
                                         },
                                     ],
                                 };
-    
+
                                 ask_question(&db, question).await;
                             }
-                            // let right_answer = word.word;
                         }
                     }
                 }
@@ -146,18 +144,30 @@ async fn ask_question(db: &Pool<Sqlite>, mut question: Question) {
     if let Some(answer) = answer {
         if answer.correct {
             println!("The answer is correct. Well done!");
-            query!("UPDATE words SET score = ROUND(score * 0.92 - 0.5) WHERE uid = ?", question.word_uid).execute(db).await.unwrap();
+            query!(
+                "UPDATE words SET score = ROUND(score * 0.92 - 0.5) WHERE uid = ?",
+                question.word_uid
+            )
+            .execute(db)
+            .await
+            .unwrap();
         } else {
             println!(
                 "The answer is incorrect. The right answer is {}. ",
                 question
-                .answers
-                .iter()
-                .find(|answer| answer.correct)
-                .map(|answer| &answer.content[..])
-                .unwrap_or("unknown")
+                    .answers
+                    .iter()
+                    .find(|answer| answer.correct)
+                    .map(|answer| &answer.content[..])
+                    .unwrap_or("unknown")
             );
-            query!("UPDATE words SET score = MIN(ROUND(score * 1.04 + 0.5), 1000) WHERE uid = ?", question.word_uid).execute(db).await.unwrap();
+            query!(
+                "UPDATE words SET score = MIN(ROUND(score * 1.04 + 0.5), 1000) WHERE uid = ?",
+                question.word_uid
+            )
+            .execute(db)
+            .await
+            .unwrap();
         }
     }
 }
