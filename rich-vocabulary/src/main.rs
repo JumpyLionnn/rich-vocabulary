@@ -1,12 +1,12 @@
 use chrono::NaiveDateTime;
 use dictionary::{Dictionary, Word, WordDefinition, WordMeaning};
-use futures::{future::Lazy, stream::StreamExt};
+use futures::stream::StreamExt;
 use sqlx::{
     migrate::MigrateDatabase, query, query_as, Either, FromRow, Pool, Row, Sqlite, SqlitePool,
 };
-use std::{any::Any, collections::HashMap, io::{self, Write}};
+use std::io::{self, Write};
 
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, Rng};
 
 const DB_URL: &str = "sqlite://sqlite.db";
 
@@ -76,11 +76,14 @@ async fn main() {
                 }
                 "practice" => {
                     let words = select_random_by_score(&db, 4).await.unwrap();
-                    for entry in words {
-                        println!(
-                            "{} with {} points at {}.",
-                            entry.word, entry.score, entry.last_quizzed
-                        );
+                    for (index, entry) in words.into_iter().enumerate() {
+                        if index != 0 {
+                            println!("------------------------");   
+                        }
+                        // println!(
+                        //     "{} with {} points at {}.",
+                        //     entry.word, entry.score, entry.last_quizzed
+                        // );
                         let word = dict.get_definition(&entry.word).await;
                         if let Ok(word) = word {
                             // question kind: match the definition to the correct word
@@ -88,31 +91,77 @@ async fn main() {
                                 word.meanings.choose(&mut rand::thread_rng()).unwrap();
                             let definition: &WordDefinition =
                                 meaning.definitions.choose(&mut rand::thread_rng()).unwrap();
-                            let answer = definition
+
+                            let answers_count = 4;
+                            let mut answers = Vec::with_capacity(answers_count);
+                            answers.push(Answer {
+                                content: word.word,
+                                correct: true,
+                            });
+                            let antonym_answer = definition
                                 .antonyms
                                 .choose(&mut rand::thread_rng())
                                 .or_else(|| meaning.antonyms.choose(&mut rand::thread_rng()));
-                            if let Some(answer) = answer {
-                                let question = Question {
-                                    word_uid: entry.uid,
-                                    question: format!(
-                                        "What word matches the following definition? {:?}",
-                                        definition.definition
-                                    ),
-                                    answers: vec![
-                                        Answer {
-                                            content: word.word,
-                                            correct: true,
-                                        },
-                                        Answer {
-                                            content: answer.clone(),
-                                            correct: false,
-                                        },
-                                    ],
-                                };
-
-                                ask_question(&db, question).await;
+                            if let Some(anonym) = antonym_answer {
+                                if rand::thread_rng().gen_bool(0.5) {
+                                    answers.push(Answer {
+                                        content: anonym.to_owned(),
+                                        correct: false,
+                                    });
+                                }
                             }
+                            let min_existing_words = 1;
+                            let max_existing_words = answers_count - answers.len();
+                            let existing_words_limit = rand::thread_rng()
+                                .gen_range(min_existing_words..=max_existing_words);
+                            let invalid_words = word
+                                .meanings
+                                .iter()
+                                .flat_map(|meaning| {
+                                    meaning.synonyms.iter().chain(
+                                        meaning
+                                            .definitions
+                                            .iter()
+                                            .flat_map(|definition| definition.synonyms.iter()),
+                                    )
+                                })
+                                .chain(answers.iter().map(|answer| &answer.content))
+                                .map(|s| &s[..])
+                                .collect::<Vec<&str>>();
+                            let query= format!("SELECT * FROM words WHERE word NOT IN (\"{}\") ORDER BY RANDOM() LIMIT {existing_words_limit};", invalid_words.join("\",\""));
+                            let words: Vec<WordEntry> =
+                                query_as(&query).fetch_all(&db).await.unwrap();
+                            let other_random_words_count =
+                                answers_count - words.len() - answers.len();
+                            if other_random_words_count > 0 {
+                                let mut words = dict
+                                    .get_random_words(other_random_words_count, None)
+                                    .await
+                                    .unwrap();
+                                words.retain(|word| !invalid_words.contains(&&word[..]));
+                                for word in words {
+                                    answers.push(Answer {
+                                        content: word,
+                                        correct: false,
+                                    });
+                                }
+                            }
+                            for word in words.iter() {
+                                answers.push(Answer {
+                                    content: word.word.clone(),
+                                    correct: false,
+                                });
+                            }
+
+                            let question = Question {
+                                word_uid: entry.uid,
+                                question: format!(
+                                    "What word matches the following definition? {:?}",
+                                    definition.definition
+                                ),
+                                answers,
+                            };
+                            ask_question(&db, question).await;
                         }
                     }
                 }
@@ -286,8 +335,6 @@ fn str_to_bool(mut str: String) -> Option<bool> {
 async fn select_random_by_score(db: &Pool<Sqlite>, count: u32) -> sqlx::Result<Vec<WordEntry>> {
     query_as(
         "
-        -- DECLARE @latest_quiz AS VARCHAR(100)=SELECT MAX(last_quizzed) FROM words;
-        -- WITH vars AS (SELECT MAX(last_quizzed) as latest_quiz FROM words);
         SELECT *, (-(score * ((SELECT MAX(last_quizzed) as latest_quiz FROM words) - last_quizzed)) / ABS(RANDOM() % 10) + 1) AS priority FROM words ORDER BY priority LIMIT ?;
         ",
     )
