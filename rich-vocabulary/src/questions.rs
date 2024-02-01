@@ -130,7 +130,7 @@ pub async fn generate_question_definition_word(
     storage: &Storage,
     dict: &Dictionary,
     uid: i64,
-    word: Word,
+    word: &Word,
 ) -> Result<Question, QuestionGenerationError> {
     // question kind: match the definition to the correct word
     let meaning: &WordMeaning = word.meanings.choose(&mut rand::thread_rng()).ok_or(QuestionGenerationError::Unsupported)?;

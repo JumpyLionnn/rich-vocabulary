@@ -1,9 +1,9 @@
 use dictionary::{Dictionary, Word};
-use questions::{generate_question_definition_word, generate_question_word_synonym, Question};
+use questions::{generate_question_definition_word, generate_question_word_synonym, Question, QuestionGenerationError};
 use storage::Storage;
 use utilities::{input, str_to_bool};
 
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, Rng};
 mod questions;
 mod storage;
 mod utilities;
@@ -54,17 +54,45 @@ async fn practice(storage: &Storage, dict: &Dictionary) -> anyhow::Result<()> {
         }
         let word = dict.get_definition(&entry.word).await;
         if let Ok(word) = word {
-            let question = match generate_question_word_synonym(&storage, &dict, entry.uid, &word)
-                .await
-            {
-                Ok(question) => question,
-                Err(_) => generate_question_definition_word(&storage, &dict, entry.uid, word).await?,
-            };
+            let question = generate_question(storage, dict, entry.uid, &word).await?;
             ask_question(&storage, question).await?;
             storage.mark_word_as_quizzed_by_uid(entry.uid).await?;
         }
     }
     Ok(())
+}
+
+async fn generate_question(storage: &Storage, dict: &Dictionary, uid: i64, word: &Word) -> Result<Question, QuestionGenerationError> {
+    let question_kind = rand::thread_rng().gen_range(0..=1);
+    match question_kind {
+        0 => {
+            let question = generate_question_word_synonym(&storage, &dict, uid, &word).await;
+            match question {
+                Ok(question) => Ok(question),
+                Err(QuestionGenerationError::Unsupported) => {
+                    generate_general_question(storage, dict, uid, word).await
+                },
+                Err(error) => Err(error)
+            }
+        }
+        1 => {
+            generate_question_definition_word(&storage, &dict, uid, word).await
+        }
+        other => {
+            unreachable!("There is no such question kind {other}");
+        }
+    }
+    // let question = match generate_question_word_synonym(&storage, &dict, entry.uid, &word)
+    //             .await
+    //         {
+    //             Ok(question) => question,
+    //             Err(_) => generate_question_definition_word(&storage, &dict, entry.uid, word).await?,
+    //         };
+    // Err(QuestionGenerationError::Unsupported)
+}
+
+async fn generate_general_question(storage: &Storage, dict: &Dictionary, uid: i64, word: &Word) -> Result<Question, QuestionGenerationError> {
+    generate_question_definition_word(&storage, &dict, uid, word).await
 }
 
 async fn ask_question(storage: &Storage, mut question: Question) -> Result<(), anyhow::Error> {
