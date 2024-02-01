@@ -15,9 +15,9 @@ enum ApiResponse {
 
 #[derive(Debug, Deserialize)]
 struct ApiError {
-    pub title: String,
+    // pub title: String,
     pub message: String,
-    pub resolution: String,
+    // pub resolution: String,
 }
 
 #[derive(Debug, Deserialize)]

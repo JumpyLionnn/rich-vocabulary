@@ -57,8 +57,8 @@ async fn practice(storage: &Storage, dict: &Dictionary) -> anyhow::Result<()> {
             let question = match generate_question_word_synonym(&storage, &dict, entry.uid, &word)
                 .await
             {
-                Some(question) => question,
-                None => generate_question_definition_word(&storage, &dict, entry.uid, word).await?,
+                Ok(question) => question,
+                Err(_) => generate_question_definition_word(&storage, &dict, entry.uid, word).await?,
             };
             ask_question(&storage, question).await?;
             storage.mark_word_as_quizzed_by_uid(entry.uid).await?;

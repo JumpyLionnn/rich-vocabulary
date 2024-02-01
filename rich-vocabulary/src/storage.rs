@@ -92,7 +92,6 @@ impl Storage {
     /// Adds a score to a word, returns if the word was modified or not
     pub async fn multiply_score_by_uid(&self, uid: i64, modifier: f64) -> Result<bool, sqlx::Error> {
         let round_weight = if modifier > 1.0 { 0.5 } else { -0.5 };
-        println!("modifier: {modifier}, floor or ceil: {round_weight}");
         let result = query!(
             "UPDATE words SET score = MIN(ROUND(score * ? + ?), 1000) WHERE uid = ?",
             modifier,
