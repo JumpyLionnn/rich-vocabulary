@@ -82,13 +82,6 @@ async fn generate_question(storage: &Storage, dict: &Dictionary, uid: i64, word:
             unreachable!("There is no such question kind {other}");
         }
     }
-    // let question = match generate_question_word_synonym(&storage, &dict, entry.uid, &word)
-    //             .await
-    //         {
-    //             Ok(question) => question,
-    //             Err(_) => generate_question_definition_word(&storage, &dict, entry.uid, word).await?,
-    //         };
-    // Err(QuestionGenerationError::Unsupported)
 }
 
 async fn generate_general_question(storage: &Storage, dict: &Dictionary, uid: i64, word: &Word) -> Result<Question, QuestionGenerationError> {
