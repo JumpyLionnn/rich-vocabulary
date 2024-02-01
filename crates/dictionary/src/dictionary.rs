@@ -7,7 +7,35 @@ pub struct Word {
     pub meanings: Vec<WordMeaning>,
 }
 
-
+impl Word {
+    pub fn all_synonyms(&self) -> impl Iterator<Item = &str> {
+        self.meanings
+            .iter()
+            .flat_map(|meaning| {
+                meaning.synonyms.iter().chain(
+                    meaning
+                        .definitions
+                        .iter()
+                        .flat_map(|definition| definition.synonyms.iter()),
+                )
+            })
+            .map(|s| &s[..])
+    }
+    
+    pub fn all_antonyms(&self) -> impl Iterator<Item = &str> {
+        self.meanings
+            .iter()
+            .flat_map(|meaning| {
+                meaning.antonyms.iter().chain(
+                    meaning
+                        .definitions
+                        .iter()
+                        .flat_map(|definition| definition.antonyms.iter()),
+                )
+            })
+            .map(|s| &s[..])
+    }    
+}
 
 #[derive(Debug)]
 pub struct Phonetic {
