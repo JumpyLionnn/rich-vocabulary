@@ -100,9 +100,15 @@ async fn ask_question(storage: &Storage, mut question: Question) -> Result<(), a
                     .map(|answer| &answer.content[..])
                     .unwrap_or("unknown")
             );
+            let modifier = 1.04;
             storage
-                .multiply_score_by_uid(question.word_uid, 1.04)
+                .multiply_score_by_uid(question.word_uid, modifier)
                 .await?;
+            if let Some(word_uid) = answer.word_uid {
+                storage
+                    .multiply_score_by_uid(word_uid, modifier)
+                    .await?;
+            }
         }
     }
     Ok(())

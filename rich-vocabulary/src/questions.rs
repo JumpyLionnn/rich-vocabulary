@@ -15,6 +15,7 @@ pub struct Question {
 pub struct Answer {
     pub content: String,
     pub correct: bool,
+    pub word_uid: Option<i64>
 }
 
 
@@ -59,6 +60,7 @@ pub async fn generate_question_word_synonym(
     answers.push(Answer {
         content: synonym.clone(),
         correct: true,
+        word_uid: storage.get_word(&synonym).await.unwrap().map(|word| word.uid)
     });
     let antonym = meaning
         .antonyms
@@ -69,6 +71,7 @@ pub async fn generate_question_word_synonym(
     answers.push(Answer {
         content: antonym.clone(),
         correct: false,
+        word_uid: storage.get_word(&antonym).await.unwrap().map(|word| word.uid)
     });
     let mut invalid_words = word.all_synonyms()
         .chain(word.all_antonyms())
@@ -83,6 +86,7 @@ pub async fn generate_question_word_synonym(
         answers.push(Answer {
             content: word.word.clone(),
             correct: false,
+            word_uid: Some(word.uid)
         });
     }
 
@@ -98,6 +102,7 @@ pub async fn generate_question_word_synonym(
             .map(|word| Answer {
                 content: word,
                 correct: false,
+                word_uid: None
             });
         answers.extend(words);
     }
@@ -123,6 +128,7 @@ pub async fn generate_question_definition_word(
     answers.push(Answer {
         content: word.word.clone(),
         correct: true,
+        word_uid: Some(uid)
     });
     let antonym_answer = definition
         .antonyms
@@ -133,6 +139,7 @@ pub async fn generate_question_definition_word(
             answers.push(Answer {
                 content: anonym.to_owned(),
                 correct: false,
+                word_uid: storage.get_word(&anonym).await?.map(|word| word.uid)
             });
         }
     }
@@ -156,6 +163,7 @@ pub async fn generate_question_definition_word(
             answers.push(Answer {
                 content: word,
                 correct: false,
+                word_uid: None
             });
         }
     }
@@ -163,6 +171,7 @@ pub async fn generate_question_definition_word(
         answers.push(Answer {
             content: word.word.clone(),
             correct: false,
+            word_uid: Some(word.uid)
         });
     }
 

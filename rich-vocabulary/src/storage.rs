@@ -90,16 +90,21 @@ impl Storage {
     }
 
     /// Adds a score to a word, returns if the word was modified or not
-    pub async fn multiply_score_by_uid(&self, word: i64, modifier: f64) -> Result<bool, sqlx::Error> {
+    pub async fn multiply_score_by_uid(&self, uid: i64, modifier: f64) -> Result<bool, sqlx::Error> {
         let round_weight = if modifier > 1.0 { 0.5 } else { -0.5 };
+        println!("modifier: {modifier}, floor or ceil: {round_weight}");
         let result = query!(
-            "UPDATE words SET score = MAX(MIN(ROUND(score * ? + ?), 1000), 0) WHERE uid = ?",
+            "UPDATE words SET score = MIN(ROUND(score * ? + ?), 1000) WHERE uid = ?",
             modifier,
             round_weight,
-            word
+            uid
         )
         .execute(&self.pool);
         let modified_count = result.await?;
         Ok(modified_count.rows_affected() > 0)
+    }
+
+    pub async fn get_word(&self, word: &str) -> Result<Option<WordEntry>, sqlx::Error> {
+        query_as!(WordEntry, "SELECT * FROM words WHERE word = ?", word).fetch_optional(&self.pool).await
     }
 }
