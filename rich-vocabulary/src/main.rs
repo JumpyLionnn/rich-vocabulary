@@ -6,7 +6,10 @@ use sqlx::{
 };
 use std::io::{self, Write};
 
-use rand::{seq::SliceRandom, Rng};
+use rand::{
+    seq::{IteratorRandom, SliceRandom},
+    Rng,
+};
 
 const DB_URL: &str = "sqlite://sqlite.db";
 
@@ -35,7 +38,7 @@ async fn main() {
     if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
         println!("Creating database {}", DB_URL);
         match Sqlite::create_database(DB_URL).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(error) => panic!("error: {}", error),
         }
     }
@@ -80,9 +83,17 @@ async fn main() {
                         }
                         let word = dict.get_definition(&entry.word).await;
                         if let Ok(word) = word {
-                            let question = generate_question(&db, &dict, entry.uid, word)
-                                .await
-                                .unwrap();
+                            let question =
+                                match generate_question_word_synonym(&db, entry.uid, &dict, &word)
+                                    .await
+                                {
+                                    Some(question) => question,
+                                    None => generate_question_definition_word(
+                                        &db, &dict, entry.uid, word,
+                                    )
+                                    .await
+                                    .unwrap(),
+                                };
                             ask_question(&db, question).await;
                             query!(
                                 "UPDATE words SET last_quizzed = CURRENT_TIMESTAMP WHERE uid = ?",
@@ -102,7 +113,96 @@ async fn main() {
     }
 }
 
-async fn generate_question(
+async fn generate_question_word_synonym(
+    db: &Pool<Sqlite>,
+    word_uid: i64,
+    dict: &Dictionary,
+    word: &Word,
+) -> Option<Question> {
+    let (meaning, definitions) = word
+        .meanings
+        .iter()
+        .map(|meaning| {
+            (
+                meaning,
+                meaning
+                    .definitions
+                    .iter()
+                    .filter(|definition| {
+                        (!definition.synonyms.is_empty() || !meaning.synonyms.is_empty())
+                            && (!definition.antonyms.is_empty() || !meaning.definitions.is_empty())
+                    })
+                    .choose(&mut rand::thread_rng()),
+            )
+        })
+        .filter_map(|(meaning, definition)| {
+            if let Some(definition) = definition {
+                Some((meaning, definition))
+            } else {
+                None
+            }
+        })
+        .choose(&mut rand::thread_rng())?;
+    let answer_count = 4;
+    let mut answers = Vec::with_capacity(answer_count);
+    let synonym = meaning
+        .synonyms
+        .iter()
+        .chain(definitions.synonyms.iter())
+        .choose(&mut rand::thread_rng())
+        .unwrap(); // there must be at least one synonym
+    answers.push(Answer {
+        content: synonym.clone(),
+        correct: true,
+    });
+    let antonym = meaning
+        .antonyms
+        .iter()
+        .chain(definitions.antonyms.iter())
+        .choose(&mut rand::thread_rng())
+        .unwrap(); // there must be at least one antonym
+    answers.push(Answer {
+        content: antonym.clone(),
+        correct: false,
+    });
+    let mut invalid_words = get_synonyms(&word)
+        .chain(get_antonyms(&word))
+        .chain(Some(&word.word[..]))
+        .collect::<Vec<&str>>();
+    let words = find_words_exclude(db, &invalid_words, answer_count - answers.len())
+        .await
+        .unwrap();
+    for word in words.iter() {
+        invalid_words.push(&word.word);
+        answers.push(Answer {
+            content: word.word.clone(),
+            correct: false,
+        });
+    }
+
+    if answers.len() < answer_count {
+        let random_words_count = answer_count - answers.len();
+        let words = dict
+            .get_random_words(random_words_count * 2, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|word| !invalid_words.contains(&&word[..]))
+            .take(random_words_count)
+            .map(|word| Answer {
+                content: word,
+                correct: false,
+            });
+        answers.extend(words);
+    }
+    Some(Question {
+        word_uid,
+        question: format!("What is the synonym of {}?", word.word),
+        answers,
+    })
+}
+
+async fn generate_question_definition_word(
     db: &Pool<Sqlite>,
     dict: &Dictionary,
     uid: i64,
@@ -115,7 +215,7 @@ async fn generate_question(
     let answers_count = 4;
     let mut answers = Vec::with_capacity(answers_count);
     answers.push(Answer {
-        content: word.word,
+        content: word.word.clone(),
         correct: true,
     });
     let antonym_answer = definition
@@ -134,22 +234,12 @@ async fn generate_question(
     let max_existing_words = answers_count - answers.len();
     let existing_words_limit =
         rand::thread_rng().gen_range(min_existing_words..=max_existing_words);
-    let invalid_words = word
-        .meanings
-        .iter()
-        .flat_map(|meaning| {
-            meaning.synonyms.iter().chain(
-                meaning
-                    .definitions
-                    .iter()
-                    .flat_map(|definition| definition.synonyms.iter()),
-            )
-        })
-        .chain(answers.iter().map(|answer| &answer.content))
-        .map(|s| &s[..])
+    let invalid_words = get_synonyms(&word)
+        .chain(answers.iter().map(|answer| &answer.content[..]))
         .collect::<Vec<&str>>();
-    let query= format!("SELECT * FROM words WHERE word NOT IN (\"{}\") ORDER BY RANDOM() LIMIT {existing_words_limit};", invalid_words.join("\",\""));
-    let words: Vec<WordEntry> = query_as(&query).fetch_all(db).await.unwrap();
+    let words = find_words_exclude(db, &invalid_words, existing_words_limit)
+        .await
+        .unwrap();
     let other_random_words_count = answers_count - words.len() - answers.len();
     if other_random_words_count > 0 {
         let mut words = dict
@@ -179,6 +269,46 @@ async fn generate_question(
         answers,
     };
     Ok(question)
+}
+
+async fn find_words_exclude(
+    db: &Pool<Sqlite>,
+    exclude: &[&str],
+    max: usize,
+) -> Result<Vec<WordEntry>, sqlx::Error> {
+    let query = format!(
+        "SELECT * FROM words WHERE word NOT IN (\"{}\") ORDER BY RANDOM() LIMIT {max};",
+        exclude.join("\",\"")
+    );
+    query_as(&query).fetch_all(db).await
+}
+
+fn get_synonyms(word: &Word) -> impl Iterator<Item = &str> {
+    word.meanings
+        .iter()
+        .flat_map(|meaning| {
+            meaning.synonyms.iter().chain(
+                meaning
+                    .definitions
+                    .iter()
+                    .flat_map(|definition| definition.synonyms.iter()),
+            )
+        })
+        .map(|s| &s[..])
+}
+
+fn get_antonyms(word: &Word) -> impl Iterator<Item = &str> {
+    word.meanings
+        .iter()
+        .flat_map(|meaning| {
+            meaning.antonyms.iter().chain(
+                meaning
+                    .definitions
+                    .iter()
+                    .flat_map(|definition| definition.antonyms.iter()),
+            )
+        })
+        .map(|s| &s[..])
 }
 
 async fn ask_question(db: &Pool<Sqlite>, mut question: Question) {
