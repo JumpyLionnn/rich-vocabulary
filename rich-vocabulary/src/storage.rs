@@ -35,13 +35,20 @@ impl Storage {
     }
 
     pub async fn select_random_by_score(&self, count: u32) -> sqlx::Result<Vec<WordEntry>> {
-        query_as(
+        let rows = query(
             "
-            SELECT *, (-(score * ((SELECT MAX(last_quizzed) as latest_quiz FROM words) - last_quizzed)) / ABS(RANDOM() % 10) + 1) AS priority FROM words ORDER BY priority LIMIT ?;
+            SELECT *, (-(score * ((SELECT MAX(JULIANDAY(last_quizzed) * 24) as latest_quiz FROM words) - JULIANDAY(last_quizzed) * 24) / (SELECT MAX(last_quizzed) AS latest_quiz FROM words)) * (1.5 - RANDOM() / CAST(-9223372036854775808 AS REAL) / 2)) AS priority FROM words ORDER BY priority LIMIT ?;
             ",
         )
         .bind(count)
-        .fetch_all(&self.pool).await
+        .fetch_all(&self.pool).await?;
+        
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            // println!("word: {:?}, score: {:?}, priority: {:?}, time: {:?}", row.try_get::<String, &str>("word"), row.try_get::<i64, &str>("score"), row.try_get::<f32, &str>("priority"), row.try_get::<NaiveDateTime, &str>("last_quizzed"));
+            entries.push(WordEntry::from_row(&row)?);
+        }
+        Ok(entries)
     }
 
     pub async fn mark_word_as_quizzed_by_uid(&self, uid: i64) -> sqlx::Result<()> {
