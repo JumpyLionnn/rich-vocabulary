@@ -76,7 +76,7 @@ async fn generate_question(
     let question_kind = rand::thread_rng().gen_range(0..=1);
     match question_kind {
         0 => {
-            let question = generate_question_word_synonym(&storage, &dict, uid, &word).await;
+            let question = generate_question_word_synonym(&storage, &dict, uid, &word, rand::thread_rng().gen_bool(0.5)).await;
             match question {
                 Ok(question) => Ok(question),
                 Err(QuestionGenerationError::Unsupported) => {

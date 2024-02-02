@@ -28,33 +28,29 @@ pub enum QuestionGenerationError {
     /// It usually happen when the word lacks synonyms and antonyms
     Unsupported,
     Storage(sqlx::Error),
-    Dictionary(DictionaryError)
+    Dictionary(DictionaryError),
 }
 
 impl Error for QuestionGenerationError {}
 impl Display for QuestionGenerationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QuestionGenerationError::Unsupported => {
-                f.write_str("Unsupported question kind")
-            },
-            QuestionGenerationError::Storage(error) => {
-                f.write_fmt(format_args!("{error}"))
-            },
-            QuestionGenerationError::Dictionary(error) => {
-                f.write_fmt(format_args!("{error}"))
-            },
+            QuestionGenerationError::Unsupported => f.write_str("Unsupported question kind"),
+            QuestionGenerationError::Storage(error) => f.write_fmt(format_args!("{error}")),
+            QuestionGenerationError::Dictionary(error) => f.write_fmt(format_args!("{error}")),
         }
     }
 }
 
+/// If synonym is true the correct answer will be a synonym otherwise its gonna be an antonym
 pub async fn generate_question_word_synonym(
     storage: &Storage,
     dict: &Dictionary,
     word_uid: i64,
     word: &Word,
+    is_synonym: bool,
 ) -> Result<Question, QuestionGenerationError> {
-    let (meaning, definitions) = word
+    let (meaning, definition) = word
         .meanings
         .iter()
         .map(|meaning| {
@@ -77,32 +73,34 @@ pub async fn generate_question_word_synonym(
                 None
             }
         })
-        .choose(&mut rand::thread_rng()).ok_or(QuestionGenerationError::Unsupported)?;
+        .choose(&mut rand::thread_rng())
+        .ok_or(QuestionGenerationError::Unsupported)?;
     let answer_count = 4;
     let mut answers = Vec::with_capacity(answer_count);
     let synonym = meaning
         .synonyms
         .iter()
-        .chain(definitions.synonyms.iter())
+        .chain(definition.synonyms.iter())
         .choose(&mut rand::thread_rng())
-        .ok_or(QuestionGenerationError::Unsupported)?; 
+        .ok_or(QuestionGenerationError::Unsupported)?;
     answers.push(Answer {
         content: synonym.clone(),
-        correct: true,
+        correct: is_synonym,
         word_uid: storage
             .get_word(&synonym)
-            .await.map_err(QuestionGenerationError::Storage)?
+            .await
+            .map_err(QuestionGenerationError::Storage)?
             .map(|word| word.uid),
     });
     let antonym = meaning
         .antonyms
         .iter()
-        .chain(definitions.antonyms.iter())
+        .chain(definition.antonyms.iter())
         .choose(&mut rand::thread_rng())
         .ok_or(QuestionGenerationError::Unsupported)?;
     answers.push(Answer {
         content: antonym.clone(),
-        correct: false,
+        correct: !is_synonym,
         word_uid: storage
             .get_word(&antonym)
             .await
@@ -115,13 +113,18 @@ pub async fn generate_question_word_synonym(
         .chain(Some(&word.word[..]))
         .collect::<Vec<&str>>();
     let existing_words_count = answer_count - answers.len();
-    add_from_storage(storage, &mut answers, &invalid_words, existing_words_count).await.map_err(QuestionGenerationError::Storage)?;
+    add_from_storage(storage, &mut answers, &invalid_words, existing_words_count)
+        .await
+        .map_err(QuestionGenerationError::Storage)?;
 
     let random_words_count = answer_count - answers.len();
-    add_random(dict, &mut answers, &mut invalid_words, random_words_count).await.map_err(QuestionGenerationError::Dictionary)?;
+    add_random(dict, &mut answers, &mut invalid_words, random_words_count)
+        .await
+        .map_err(QuestionGenerationError::Dictionary)?;
+    let synonym_or_antonym = if is_synonym { "synonym" } else { "antonym" };
     Ok(Question {
         word_uid,
-        question: format!("What is the synonym of {}?", word.word),
+        question: format!("What is the {synonym_or_antonym} of {}?", word.word),
         answers,
     })
 }
@@ -133,8 +136,14 @@ pub async fn generate_question_definition_word(
     word: &Word,
 ) -> Result<Question, QuestionGenerationError> {
     // question kind: match the definition to the correct word
-    let meaning: &WordMeaning = word.meanings.choose(&mut rand::thread_rng()).ok_or(QuestionGenerationError::Unsupported)?;
-    let definition: &WordDefinition = meaning.definitions.choose(&mut rand::thread_rng()).ok_or(QuestionGenerationError::Unsupported)?;
+    let meaning: &WordMeaning = word
+        .meanings
+        .choose(&mut rand::thread_rng())
+        .ok_or(QuestionGenerationError::Unsupported)?;
+    let definition: &WordDefinition = meaning
+        .definitions
+        .choose(&mut rand::thread_rng())
+        .ok_or(QuestionGenerationError::Unsupported)?;
 
     let answers_count = 4;
     let mut answers = Vec::with_capacity(answers_count);
@@ -154,7 +163,11 @@ pub async fn generate_question_definition_word(
             answers.push(Answer {
                 content: anonym.to_owned(),
                 correct: false,
-                word_uid: storage.get_word(&anonym).await.map_err(QuestionGenerationError::Storage)?.map(|word| word.uid),
+                word_uid: storage
+                    .get_word(&anonym)
+                    .await
+                    .map_err(QuestionGenerationError::Storage)?
+                    .map(|word| word.uid),
             });
             invalid_words.push(anonym);
         }
@@ -163,10 +176,14 @@ pub async fn generate_question_definition_word(
 
     let max_existing_words = answers_count - answers.len();
     let existing_words_limit = rand::thread_rng().gen_range(1..=max_existing_words);
-    add_from_storage(storage, &mut answers, &invalid_words, existing_words_limit).await.map_err(QuestionGenerationError::Storage)?;
+    add_from_storage(storage, &mut answers, &invalid_words, existing_words_limit)
+        .await
+        .map_err(QuestionGenerationError::Storage)?;
 
     let random_words_count = answers_count - answers.len();
-    add_random(dict, &mut answers, &invalid_words, random_words_count).await.map_err(QuestionGenerationError::Dictionary)?;
+    add_random(dict, &mut answers, &invalid_words, random_words_count)
+        .await
+        .map_err(QuestionGenerationError::Dictionary)?;
 
     Ok(Question {
         word_uid: uid,
@@ -178,10 +195,13 @@ pub async fn generate_question_definition_word(
     })
 }
 
-async fn add_from_storage(storage: &Storage, answers: &mut Vec<Answer>, invalid_words: &Vec<&str>, count: usize) -> sqlx::Result<()> {
-    let words = storage
-        .find_words_excluding(&invalid_words, count)
-        .await?;
+async fn add_from_storage(
+    storage: &Storage,
+    answers: &mut Vec<Answer>,
+    invalid_words: &Vec<&str>,
+    count: usize,
+) -> sqlx::Result<()> {
+    let words = storage.find_words_excluding(&invalid_words, count).await?;
     for word in words.iter() {
         answers.push(Answer {
             content: word.word.clone(),
@@ -192,7 +212,12 @@ async fn add_from_storage(storage: &Storage, answers: &mut Vec<Answer>, invalid_
     Ok(())
 }
 
-async fn add_random(dict: &Dictionary, answers: &mut Vec<Answer>, invalid_words: &Vec<&str>, count: usize) -> Result<(), DictionaryError> {
+async fn add_random(
+    dict: &Dictionary,
+    answers: &mut Vec<Answer>,
+    invalid_words: &Vec<&str>,
+    count: usize,
+) -> Result<(), DictionaryError> {
     if count > 0 {
         let words = dict
             .get_random_words(count * 2, None)
