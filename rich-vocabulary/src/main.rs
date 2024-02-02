@@ -1,9 +1,14 @@
 use dictionary::{Dictionary, Word};
-use questions::{generate_question_definition_word, generate_question_word_synonym, Question, QuestionGenerationError};
+use questions::{
+    generate_question_definition_word, generate_question_word_synonym, Question,
+    QuestionGenerationError,
+};
 use storage::Storage;
 use utilities::{input, str_to_bool};
 
 use rand::{seq::SliceRandom, Rng};
+
+use crate::questions::Answer;
 mod questions;
 mod storage;
 mod utilities;
@@ -62,7 +67,12 @@ async fn practice(storage: &Storage, dict: &Dictionary) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn generate_question(storage: &Storage, dict: &Dictionary, uid: i64, word: &Word) -> Result<Question, QuestionGenerationError> {
+async fn generate_question(
+    storage: &Storage,
+    dict: &Dictionary,
+    uid: i64,
+    word: &Word,
+) -> Result<Question, QuestionGenerationError> {
     let question_kind = rand::thread_rng().gen_range(0..=1);
     match question_kind {
         0 => {
@@ -71,20 +81,23 @@ async fn generate_question(storage: &Storage, dict: &Dictionary, uid: i64, word:
                 Ok(question) => Ok(question),
                 Err(QuestionGenerationError::Unsupported) => {
                     generate_general_question(storage, dict, uid, word).await
-                },
-                Err(error) => Err(error)
+                }
+                Err(error) => Err(error),
             }
         }
-        1 => {
-            generate_question_definition_word(&storage, &dict, uid, word).await
-        }
+        1 => generate_question_definition_word(&storage, &dict, uid, word).await,
         other => {
             unreachable!("There is no such question kind {other}");
         }
     }
 }
 
-async fn generate_general_question(storage: &Storage, dict: &Dictionary, uid: i64, word: &Word) -> Result<Question, QuestionGenerationError> {
+async fn generate_general_question(
+    storage: &Storage,
+    dict: &Dictionary,
+    uid: i64,
+    word: &Word,
+) -> Result<Question, QuestionGenerationError> {
     generate_question_definition_word(&storage, &dict, uid, word).await
 }
 
@@ -95,15 +108,34 @@ async fn ask_question(storage: &Storage, mut question: Question) -> Result<(), a
         println!("[{}]: {}", index + 1, answer.content);
     }
     let answer = loop {
-        let chosen_answer = input("Enter the number of the correct answer: ")?;
+        let chosen_answer = input("Enter the correct answer: ")?;
         let chosen_answer = chosen_answer.trim();
-        if chosen_answer == "exit" {
-            break None;
-        } else if let Ok(index) = chosen_answer.parse::<usize>() {
-            if let Some(answer) = question.answers.get(index.wrapping_sub(1)) {
-                break Some(answer);
+        match chosen_answer.parse::<usize>() {
+            Ok(index) => {
+                if let Some(answer) = question.answers.get(index.wrapping_sub(1)) {
+                    break Some(answer);
+                }
             }
+            Err(_) => match &chosen_answer.to_lowercase()[..] {
+                ":s" | ":skip" => {
+                    break None;
+                }
+                other => {
+                    let mut answers = question
+                        .answers
+                        .iter()
+                        .map(|answer| (answer, strsim::jaro(&answer.content.to_lowercase(), other)))
+                        .collect::<Vec<(&Answer, f64)>>();
+                    // most similar at the start
+                    answers.sort_unstable_by(|(_, a), (_, b)| (-a).partial_cmp(&-b).unwrap());
+                    let difference = f64::abs(answers[0].1 - answers[1].1);
+                    if (answers[0].1 > 0.9 && difference > 0.25) || answers[0].1 == 1.0 {
+                        break Some(answers[0].0);
+                    }
+                }
+            },
         }
+        println!("Couldn't understand your answer, please try again.");
     };
     if let Some(answer) = answer {
         if answer.correct {
@@ -126,9 +158,7 @@ async fn ask_question(storage: &Storage, mut question: Question) -> Result<(), a
                 .multiply_score_by_uid(question.word_uid, modifier)
                 .await?;
             if let Some(word_uid) = answer.word_uid {
-                storage
-                    .multiply_score_by_uid(word_uid, modifier)
-                    .await?;
+                storage.multiply_score_by_uid(word_uid, modifier).await?;
             }
         }
     }
