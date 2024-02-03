@@ -248,7 +248,6 @@ pub async fn generate_question_word_definition(
                                 correct: false,
                                 word_uid: None,
                             });
-                            println!("word: {anonym}");
                             invalid_words.push(anonym);
                             break;
                         }
@@ -328,7 +327,6 @@ async fn add_definitions_from_storage(
                 .into_iter()
                 .find(|meaning| meaning.part_of_speech == part_of_speech)
             {
-                println!("word: {}", word.word);
                 answers.push(Answer {
                     content: definition
                         .definitions
@@ -392,7 +390,6 @@ async fn add_random_definitions(
                 .into_iter()
                 .find(|meaning| meaning.part_of_speech == part_of_speech)
             {
-                println!("word: {word}");
                 answers.push(Answer {
                     content: definition
                         .definitions
