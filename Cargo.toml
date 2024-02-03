@@ -3,5 +3,6 @@ members = [
     "rich-vocabulary",
     "crates/dictionary"
 ]
+resolver = "2"
 
 default-members = ["rich-vocabulary"]
