@@ -1,13 +1,27 @@
 # Rich Vocabulary
-Enrich your english vocabulary inside a console application
+Enrich your english vocabulary inside a console application.
+This application can help you learn new words in english.
 
-Type `find/practice <word>` to see the  definition of the word. Choose if you want to save it for practice or not.
-After you saved a lot of words, type `practice`. you will be given a set of question to test how much you know the words.
+You can find words definitions and then save them for practice
+```
+find/define <word>
+```
 
-Type `remove <word>` to remove the word from the saved words
-Type `exit` to exit the program.
+After you have saved a bunch of words you can practice them.
+```
+practice
+```
+The application will ask you a few questions about some words you have saved. A score for each word will be automatically tracked to indicate how well you know a certain word.
+There are a few kinds of questions.
 
+If you feel like you know a word well enough you can remove it
+```
+remove <word>
+```
 
-Each saved word has a score to determine how well the user knows it. the score adjusts automatically and when practicing the algorithm will use words with high practice priority when practicing.
+When you are tired of practicing you can exit
+```
+exit/leave/quit
+```
 
-ngl the code is pretty bad :)
+Enjoy the learning process!
