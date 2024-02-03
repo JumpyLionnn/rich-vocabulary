@@ -1,7 +1,6 @@
 use dictionary::{Dictionary, Word};
 use questions::{
-    generate_question_definition_word, generate_question_word_synonym, Question,
-    QuestionGenerationError,
+    generate_question_definition_word, generate_question_word_definition, generate_question_word_synonym, Question, QuestionGenerationError
 };
 use storage::Storage;
 use utilities::{input, str_to_bool};
@@ -73,7 +72,7 @@ async fn generate_question(
     uid: i64,
     word: &Word,
 ) -> Result<Question, QuestionGenerationError> {
-    let question_kind = rand::thread_rng().gen_range(0..=1);
+    let question_kind = rand::thread_rng().gen_range(0..=2);
     match question_kind {
         0 => {
             let question = generate_question_word_synonym(&storage, &dict, uid, &word, rand::thread_rng().gen_bool(0.5)).await;
@@ -86,6 +85,7 @@ async fn generate_question(
             }
         }
         1 => generate_question_definition_word(&storage, &dict, uid, word).await,
+        2 => generate_question_word_definition(&storage, &dict, uid, word).await,
         other => {
             unreachable!("There is no such question kind {other}");
         }
@@ -98,7 +98,14 @@ async fn generate_general_question(
     uid: i64,
     word: &Word,
 ) -> Result<Question, QuestionGenerationError> {
-    generate_question_definition_word(&storage, &dict, uid, word).await
+    let question_kind = rand::thread_rng().gen_range(0..=1);
+    match question_kind {
+        0 => generate_question_definition_word(&storage, &dict, uid, word).await,
+        1 => generate_question_word_definition(&storage, &dict, uid, word).await,
+        other => {
+            unreachable!("There is no such question kind {other}");
+        }
+    }
 }
 
 async fn ask_question(storage: &Storage, mut question: Question) -> Result<(), anyhow::Error> {

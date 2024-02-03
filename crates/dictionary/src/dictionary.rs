@@ -53,7 +53,7 @@ pub struct WordMeaning {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PartOfSpeech {
     Noun,
     Pronoun,
