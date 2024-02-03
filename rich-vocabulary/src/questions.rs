@@ -220,52 +220,75 @@ pub async fn generate_question_word_definition(
         word_uid: None,
     });
     invalid_words.push(&word.word[..]);
-    let antonym_answer = definition
+    // let antonym_answer = definition
+    //     .antonyms
+    //     .choose(&mut rand::thread_rng())
+    //     .or_else(|| meaning.antonyms.choose(&mut rand::thread_rng()));
+    while let Some(anonym) = definition
         .antonyms
         .choose(&mut rand::thread_rng())
-        .or_else(|| meaning.antonyms.choose(&mut rand::thread_rng()));
-    if let Some(anonym) = antonym_answer {
-        if rand::thread_rng().gen_bool(0.6) {
-            answers.push(Answer {
-                content: dict
-                    .get_definition(&anonym)
-                    .await
-                    .unwrap()
-                    .meanings
-                    .iter()
-                    .find(|antonym| antonym.part_of_speech == meaning.part_of_speech)
-                    .unwrap()
-                    .definitions
-                    .choose(&mut rand::thread_rng())
-                    .unwrap()
-                    .definition
-                    .clone(),
-                correct: false,
-                word_uid: None,
-            });
-            println!("word: {anonym}");
-            invalid_words.push(anonym);
+        .or_else(|| meaning.antonyms.choose(&mut rand::thread_rng()))
+    {
+        if rand::thread_rng().gen_bool(0.8) {
+            match dict.get_definition(&anonym).await {
+                Ok(word) => {
+                    let antonym_meaning = word
+                        .meanings
+                        .iter()
+                        .find(|antonym| antonym.part_of_speech == meaning.part_of_speech);
+                    match antonym_meaning {
+                        Some(antonym_meaning) => {
+                            answers.push(Answer {
+                                content: antonym_meaning
+                                    .definitions
+                                    .choose(&mut rand::thread_rng())
+                                    .unwrap()
+                                    .definition
+                                    .clone(),
+                                correct: false,
+                                word_uid: None,
+                            });
+                            println!("word: {anonym}");
+                            invalid_words.push(anonym);
+                            break;
+                        }
+                        None => continue,
+                    }
+                }
+                Err(DictionaryError::NotFound(_)) => continue,
+                Err(error) => Err(QuestionGenerationError::Dictionary(error))?,
+            }
         }
     }
     invalid_words.extend(word.all_synonyms().chain(word.all_antonyms()));
 
     let max_existing_words = answers_count - answers.len();
     let existing_words_limit = rand::thread_rng().gen_range(1..=max_existing_words);
-    add_definitions_from_storage(storage, dict, &mut answers, &invalid_words, existing_words_limit, meaning.part_of_speech.clone())
-        .await
-        .map_err(QuestionGenerationError::Storage)?;
+    add_definitions_from_storage(
+        storage,
+        dict,
+        &mut answers,
+        &invalid_words,
+        existing_words_limit,
+        meaning.part_of_speech.clone(),
+    )
+    .await
+    .map_err(QuestionGenerationError::Storage)?;
 
     let random_words_count = answers_count - answers.len();
-    add_random_definitions(dict, &mut answers, &invalid_words, random_words_count, meaning.part_of_speech.clone())
-        .await
-        .map_err(QuestionGenerationError::Dictionary)?;
+    add_random_definitions(
+        dict,
+        &mut answers,
+        &invalid_words,
+        random_words_count,
+        meaning.part_of_speech.clone(),
+    )
+    .await
+    .map_err(QuestionGenerationError::Dictionary)?;
 
     Ok(Question {
         word_uid: uid,
-        question: format!(
-            "The definition of '{}' is:",
-            word.word
-        ),
+        question: format!("The definition of '{}' is:", word.word),
         answers,
     })
 }
@@ -293,15 +316,26 @@ async fn add_definitions_from_storage(
     answers: &mut Vec<Answer>,
     invalid_words: &Vec<&str>,
     mut count: usize,
-    part_of_speech: PartOfSpeech
+    part_of_speech: PartOfSpeech,
 ) -> sqlx::Result<()> {
-    let words = storage.find_words_excluding(&invalid_words, count * 2).await?;
+    let words = storage
+        .find_words_excluding(&invalid_words, count * 2)
+        .await?;
     for word in words.iter() {
         if let Ok(definition) = dict.get_definition(&word.word).await {
-            if let Some(definition) = definition.meanings.into_iter().find(|meaning| meaning.part_of_speech == part_of_speech) {
+            if let Some(definition) = definition
+                .meanings
+                .into_iter()
+                .find(|meaning| meaning.part_of_speech == part_of_speech)
+            {
                 println!("word: {}", word.word);
                 answers.push(Answer {
-                    content: definition.definitions.choose(&mut rand::thread_rng()).unwrap().definition.to_owned(),
+                    content: definition
+                        .definitions
+                        .choose(&mut rand::thread_rng())
+                        .unwrap()
+                        .definition
+                        .to_owned(),
                     correct: false,
                     word_uid: None,
                 });
@@ -338,26 +372,34 @@ async fn add_random(
     Ok(())
 }
 
-
 async fn add_random_definitions(
     dict: &Dictionary,
     answers: &mut Vec<Answer>,
     invalid_words: &Vec<&str>,
     count: usize,
-    part_of_speech: PartOfSpeech
+    part_of_speech: PartOfSpeech,
 ) -> Result<(), DictionaryError> {
     let words = dict
-            .get_random_words(count * 3, None)
-            .await?
-            .into_iter()
-            .filter(|word| !invalid_words.contains(&&word[..]));
+        .get_random_words(count * 3, None)
+        .await?
+        .into_iter()
+        .filter(|word| !invalid_words.contains(&&word[..]));
     let mut added = 0;
     for word in words {
         if let Ok(definition) = dict.get_definition(&word).await {
-            if let Some(definition) = definition.meanings.into_iter().find(|meaning| meaning.part_of_speech == part_of_speech) {
+            if let Some(definition) = definition
+                .meanings
+                .into_iter()
+                .find(|meaning| meaning.part_of_speech == part_of_speech)
+            {
                 println!("word: {word}");
                 answers.push(Answer {
-                    content: definition.definitions.choose(&mut rand::thread_rng()).unwrap().definition.to_owned(),
+                    content: definition
+                        .definitions
+                        .choose(&mut rand::thread_rng())
+                        .unwrap()
+                        .definition
+                        .to_owned(),
                     correct: false,
                     word_uid: None,
                 });
